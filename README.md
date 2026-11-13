@@ -1,3 +1,6 @@
+> **Cititec fork** of [veeam-ai/veeam-mcp-server](https://github.com/veeam-ai/veeam-mcp-server). Before changing anything, read
+> [CITITEC-FORK.md](CITITEC-FORK.md): which changes go back to Veeam and which stay in this fork.
+
 # Veeam MCP Servers
 
 This repository hosts Model Context Protocol (MCP) servers for Veeam products. Each server is an independent project with its own toolchain, dependencies, and documentation, and integrates with any MCP-compatible client, such as Claude Desktop, Visual Studio Code, and others.
