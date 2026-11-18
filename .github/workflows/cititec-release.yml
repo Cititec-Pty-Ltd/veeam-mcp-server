@@ -3,8 +3,9 @@
 # file to Veeam (see CITITEC-FORK.md).
 #
 # Veeam does not tag releases, so each image is tagged with the package.json version plus
-# the short commit (example: v1.0.0-deac916) and with latest. The MCP host pins the image by
-# digest, so a new image changes nothing until control.json is updated.
+# the short commit (example: v1.0.0-deac916), and with latest when it is a build of what is on
+# main now. The MCP host pins the image by digest, so a new image changes nothing until
+# control.json is updated.
 name: Cititec release
 
 on:
@@ -60,6 +61,17 @@ jobs:
         run: |
           version="$(node -p "require('./package.json').version")"
           echo "tag=v${version}-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          # Only a build of what is on main now moves :latest, so re-running an older run
+          # (or running this on another branch) pushes its own tag without rolling :latest back.
+          git fetch --quiet --no-tags --depth=1 origin main
+          built="$(git rev-parse HEAD:servers/vi-mcp)"
+          newest="$(git rev-parse FETCH_HEAD:servers/vi-mcp)"
+          if [ "$built" = "$newest" ]; then
+            echo "latest=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "latest=false" >> "$GITHUB_OUTPUT"
+            echo "servers/vi-mcp here is not what is on main now - :latest is left as it is"
+          fi
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee  # v4.2.0
@@ -83,8 +95,9 @@ jobs:
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
+          # An empty line (not what is on main now) is ignored.
           tags: |
-            ${{ env.IMAGE }}:latest
+            ${{ steps.tag.outputs.latest == 'true' && format('{0}:latest', env.IMAGE) || '' }}
             ${{ env.IMAGE }}:${{ steps.tag.outputs.tag }}
 
       - name: Summary
