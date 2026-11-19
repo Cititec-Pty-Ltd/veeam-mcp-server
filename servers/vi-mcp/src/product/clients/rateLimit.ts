@@ -11,7 +11,7 @@ import { log } from '@/utils/logger';
  *
  * A short wait is retried so a brief burst does not surface as an error. A long one is returned
  * at once, so a call is never held for minutes: the caller gets the 429 and how long to wait.
- * A 503 is retried only when it says how long to wait.
+ * A 503 is retried only for read-only methods, and only when it says how long to wait.
  */
 export const RATE_LIMIT_RETRY = {
     /** Retries after the first attempt. */
@@ -62,8 +62,17 @@ export function retryAfterSecondsOf(response: Pick<AxiosResponse, 'headers' | 'd
     return ms === undefined ? undefined : Math.max(1, Math.ceil(ms / 1000));
 }
 
-export function isRateLimited(response: Pick<AxiosResponse, 'status' | 'headers' | 'data'>): boolean {
-    return response.status === 429 || (response.status === 503 && retryAfterMsOf(response) !== undefined);
+/** Methods that can be sent again without risk of doing the work twice. */
+const REPLAY_SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+
+/**
+ * Whether the response may be retried. A 429 means the request was throttled before it ran, so
+ * any method may be retried. A 503 does not prove the request had no effect, so it is retried
+ * only for read-only methods, never for an action such as starting a job.
+ */
+export function isRateLimited(response: Pick<AxiosResponse, 'status' | 'headers' | 'data'>, method: string = 'GET'): boolean {
+    if (response.status === 429) return true;
+    return response.status === 503 && REPLAY_SAFE_METHODS.has(method.toUpperCase()) && retryAfterMsOf(response) !== undefined;
 }
 
 /**
@@ -89,11 +98,15 @@ export const sleep = (ms: number): Promise<void> => new Promise((resolve) => set
  * Sends a request (with `validateStatus: () => true`) with the bounded retry above. Returns the
  * last response, which may still be a 429 for the caller to report.
  */
-export async function sendWithRateLimitRetry<T>(send: () => Promise<AxiosResponse<T>>, label: string): Promise<AxiosResponse<T>> {
+export async function sendWithRateLimitRetry<T>(
+    send: () => Promise<AxiosResponse<T>>,
+    label: string,
+    method: string,
+): Promise<AxiosResponse<T>> {
     let response = await send();
     let waitedMs = 0;
     for (let attempt = 0; ; attempt++) {
-        if (!isRateLimited(response)) return response;
+        if (!isRateLimited(response, method)) return response;
         const delay = retryDelayMs(attempt, retryAfterMsOf(response), waitedMs);
         if (delay === undefined) return response;
         log.warn(`Rate limited (HTTP ${response.status}) on ${label}; retrying in ${delay} ms`);

@@ -126,14 +126,14 @@ export abstract class BaseRestClient implements ProductRestClient {
             });
 
         const label = pathOf(url);
-        const response = await sendWithRateLimitRetry(send, label);
+        const response = await sendWithRateLimitRetry(send, label, config.method);
         if (response.status !== 401) {
             return response;
         }
 
         await this.authenticate();
         this.applyAuthHeader(headers);
-        return sendWithRateLimitRetry(send, label);
+        return sendWithRateLimitRetry(send, label, config.method);
     }
 
     // Generic request method with automatic token handling
@@ -158,13 +158,13 @@ export abstract class BaseRestClient implements ProductRestClient {
 
         let response: AxiosResponse<T>;
         try {
-            response = await sendWithRateLimitRetry(send, label);
+            response = await sendWithRateLimitRetry(send, label, config.method);
 
             // Handle 401 - retry with new token
             if (response.status === 401) {
                 await this.authenticate();
                 this.applyAuthHeader(headers);
-                response = await sendWithRateLimitRetry(send, label);
+                response = await sendWithRateLimitRetry(send, label, config.method);
             }
         } catch (error: any) {
             // Extract detailed error information
