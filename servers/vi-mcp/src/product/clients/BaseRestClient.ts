@@ -12,6 +12,7 @@ import axios, { AxiosInstance, AxiosResponse } from 'axios';
 import https from 'node:https';
 import { mergeUrlParts } from '@/utils/url';
 import safeStringify from '@/utils/safeStringify';
+import { rateLimitMessage, sendWithRateLimitRetry } from './rateLimit';
 
 export abstract class BaseRestClient implements ProductRestClient {
     protected readonly config: ProductRestClientConfig;
@@ -66,7 +67,7 @@ export abstract class BaseRestClient implements ProductRestClient {
         } catch (err: any) {
             return {
                 status: 'error',
-                data: { message: `Failed to call ${method} ${endpoint_path}: ${err.message || 'Unknown error'}` },
+                data: { message: this.redact(`Failed to call ${method} ${endpoint_path}: ${err.message || 'Unknown error'}`) },
             };
         }
     }
@@ -124,14 +125,15 @@ export abstract class BaseRestClient implements ProductRestClient {
                 validateStatus: () => true,
             });
 
-        const response = await send();
+        const label = pathOf(url);
+        const response = await sendWithRateLimitRetry(send, label);
         if (response.status !== 401) {
             return response;
         }
 
         await this.authenticate();
         this.applyAuthHeader(headers);
-        return send();
+        return sendWithRateLimitRetry(send, label);
     }
 
     // Generic request method with automatic token handling
@@ -143,45 +145,51 @@ export abstract class BaseRestClient implements ProductRestClient {
         params?: Record<string, string>;
     }): Promise<T> {
         const { url, headers } = await this.prepareRequest(config);
-
-        try {
-            const response = await this.client.request<T>({
+        const send = () =>
+            this.client.request<T>({
                 method: config.method,
                 url,
                 data: config.data,
                 headers,
                 params: config.params,
+                validateStatus: () => true,
             });
+        const label = pathOf(url);
 
-            return response.data;
-        } catch (error: any) {
+        let response: AxiosResponse<T>;
+        try {
+            response = await sendWithRateLimitRetry(send, label);
+
             // Handle 401 - retry with new token
-            if (error.response?.status === 401) {
+            if (response.status === 401) {
                 await this.authenticate();
                 this.applyAuthHeader(headers);
-                const retryResponse = await this.client.request<T>({
-                    method: config.method,
-                    url,
-                    data: config.data,
-                    headers,
-                    params: config.params,
-                });
-
-                return retryResponse.data;
+                response = await sendWithRateLimitRetry(send, label);
             }
-
+        } catch (error: any) {
             // Extract detailed error information
             let errorMessage = `Request failed: ${error.message}`;
 
             // Include cause details if available
             if (error.cause) {
                 errorMessage += this.formatErrorCause(error.cause);
-            } else if (error.response) {
-                errorMessage = `Request failed: ${error.response.status} ${error.response.statusText}`;
             }
 
-            throw new Error(errorMessage, { cause: error });
+            throw new Error(this.redact(errorMessage), { cause: error });
         }
+
+        if (response.status >= 200 && response.status < 300) {
+            return response.data;
+        }
+        if (response.status === 429 || response.status === 503) {
+            throw new Error(`Request failed: ${rateLimitMessage(response)}`);
+        }
+        let errorMessage = `Request failed: ${response.status} ${response.statusText}`;
+        if (response.status === 401 && this.config.apiKey) {
+            errorMessage +=
+                '. The API key was rejected: check that VSPC_API_KEY is a valid Simple REST API key and that its user is enabled.';
+        }
+        throw new Error(errorMessage);
     }
 
     // Authentication
@@ -200,7 +208,7 @@ export abstract class BaseRestClient implements ProductRestClient {
             this.accessToken = data.access_token;
             this.tokenExpirationTime = data.valid_until;
         } catch (error: any) {
-            console.error('Authentication failed:', error.message || error);
+            console.error('Authentication failed:', this.redact(String(error.message || error)));
 
             if (axios.isAxiosError(error)) {
                 const errorMessage =
@@ -210,8 +218,9 @@ export abstract class BaseRestClient implements ProductRestClient {
                     `Response data: ${safeStringify(error.response?.data)}\n` +
                     `Error message: ${error.message}`;
 
-                console.error(errorMessage);
-                throw new Error(errorMessage, { cause: error });
+                const redacted = this.redact(errorMessage);
+                console.error(redacted);
+                throw new Error(redacted, { cause: error });
             }
 
             // Extract detailed error information
@@ -226,8 +235,19 @@ export abstract class BaseRestClient implements ProductRestClient {
                 errorMessage += ' Please verify that ADMIN_USERNAME and ADMIN_PASSWORD are correct.';
             }
 
-            throw new Error(errorMessage, { cause: error });
+            throw new Error(this.redact(errorMessage), { cause: error });
         }
+    }
+
+    /** Removes the API key and password from text that may be logged or returned. */
+    protected redact(text: string): string {
+        let result = text;
+        for (const secret of [this.config.apiKey, this.config.password]) {
+            if (secret && secret.length >= 4) {
+                result = result.split(secret).join('[redacted]');
+            }
+        }
+        return result;
     }
 
     private formatErrorCause(cause: any): string {
@@ -240,5 +260,14 @@ export abstract class BaseRestClient implements ProductRestClient {
         } else {
             return `Unexpected network error: ${cause.message || cause}`;
         }
+    }
+}
+
+/** The path of a URL, without host or query, for log lines. */
+function pathOf(url: string): string {
+    try {
+        return new URL(url).pathname;
+    } catch {
+        return url.split('?')[0];
     }
 }

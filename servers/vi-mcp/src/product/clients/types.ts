@@ -30,6 +30,8 @@ export interface ProductRestClientConfig {
     baseURL: string;
     username: string;
     password: string;
+    /** Veeam Service Provider Console REST API key; when set it replaces the username/password token flow. */
+    apiKey?: string;
     acceptSelfSignedCert: boolean;
 }
 
