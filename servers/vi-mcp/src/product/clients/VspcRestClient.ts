@@ -43,6 +43,16 @@ export class VspcRestClient extends BaseRestClient {
     }
 
     protected async authenticateProductRest(): Promise<ProductAuthResponseUnifiedDate> {
+        if (this.config.apiKey) {
+            // A Simple REST API key is sent as the bearer token on every request; there is no
+            // token request. It does not expire: it works until its user is disabled or deleted.
+            return {
+                access_token: this.config.apiKey,
+                valid_until: Number.POSITIVE_INFINITY,
+                token_type: 'Bearer',
+            };
+        }
+
         const authData = new URLSearchParams();
         authData.append('username', this.config.username);
         authData.append('password', this.config.password);

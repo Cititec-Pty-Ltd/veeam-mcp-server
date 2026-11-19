@@ -68,6 +68,7 @@ Collect the following credentials and connection details. These values are passe
   - Veeam Service Provider Console: `https://vspc-srv.local:1280/`
 - `ADMIN_USERNAME`: The Veeam product administrator username, for example, `.\administrator`
 - `ADMIN_PASSWORD`: The administrator password
+- `VSPC_API_KEY` (optional, Veeam Service Provider Console only): A **Simple** REST API key (Configuration > Access Management > REST API Keys in the console, scope `rest`; a read-only key is enough for questions). When it is set, the key is sent as the bearer token on every request, no token request is made, and `ADMIN_USERNAME` / `ADMIN_PASSWORD` are not needed. The key does not expire; it works until its user is disabled or deleted. It is never logged, and it is removed from error messages.
 - `ACCEPT_SELF_SIGNED_CERT`: Set to `true` if the Veeam product uses a self-signed SSL certificate, for example, `ACCEPT_SELF_SIGNED_CERT=true`
 - `ACTION_CONFIRMATION_TIMEOUT_SEC` (optional, default `1500`): How long a proposed action waits for the user's decision before it is declined automatically.
 - `CHAT_TURN_TIMEOUT_SEC` (optional, default `3600`): Upper bound for a single Veeam Intelligence answer, including confirmation waits.

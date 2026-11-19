@@ -13,8 +13,9 @@ export function createProductRestClient(): ProductRestClient {
 
     const productRestClientConfig: ProductRestClientConfig = {
         baseURL: settings.WEB_URL,
-        username: settings.ADMIN_USERNAME,
-        password: settings.ADMIN_PASSWORD,
+        username: settings.ADMIN_USERNAME ?? '',
+        password: settings.ADMIN_PASSWORD ?? '',
+        apiKey: settings.VSPC_API_KEY,
         acceptSelfSignedCert: settings.ACCEPT_SELF_SIGNED_CERT,
     };
 
