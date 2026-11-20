@@ -5,7 +5,7 @@
 
 import { describe, it, expect } from '@jest/globals';
 
-import { parseRetryAfter, retryAfterMsOf, retryDelayMs, RATE_LIMIT_RETRY } from '../rateLimit';
+import { isRateLimited, parseRetryAfter, retryAfterMsOf, retryDelayMs, RATE_LIMIT_RETRY } from '../rateLimit';
 
 describe('parseRetryAfter', () => {
     it('reads seconds, numbers and HTTP dates', () => {
@@ -30,6 +30,22 @@ describe('retryAfterMsOf', () => {
         expect(retryAfterMsOf({ headers: { 'retry-after': '2' }, data: { retryAfter: 9 } })).toBe(2000);
         expect(retryAfterMsOf({ headers: {}, data: { retryAfter: 9 } })).toBe(9000);
         expect(retryAfterMsOf({ headers: {}, data: 'not json' })).toBeUndefined();
+    });
+});
+
+describe('isRateLimited', () => {
+    const r = (status: number, headers: Record<string, string> = {}) => ({ status, headers, data: {} });
+
+    it('retries a 429 for any method', () => {
+        expect(isRateLimited(r(429), 'GET')).toBe(true);
+        expect(isRateLimited(r(429), 'POST')).toBe(true);
+    });
+
+    it('retries a 503 with a wait only for read-only methods', () => {
+        expect(isRateLimited(r(503, { 'retry-after': '1' }), 'get')).toBe(true);
+        expect(isRateLimited(r(503, { 'retry-after': '1' }), 'POST')).toBe(false);
+        expect(isRateLimited(r(503, { 'retry-after': '1' }), 'PATCH')).toBe(false);
+        expect(isRateLimited(r(503), 'GET')).toBe(false);
     });
 });
 

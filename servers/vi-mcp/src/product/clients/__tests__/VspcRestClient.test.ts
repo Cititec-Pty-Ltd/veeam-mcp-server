@@ -182,6 +182,43 @@ describe('VspcRestClient rate limiting', () => {
         expect(err.message).toContain('HTTP 429');
     });
 
+    it('never replays an action (POST) after a 503', async () => {
+        const { client, sent } = createClient({ apiKey: API_KEY }, [{ status: 503, headers: { 'retry-after': '0' } }]);
+
+        const result = await client.getToolCallData({
+            tool_name: 'fetch_data_from_endpoint',
+            parameters: { endpoint_path: '/api/v3/jobs/00000000-0000-0000-0000-000000000000/start', method: 'POST' },
+        } as any);
+
+        expect(sent).toHaveLength(1);
+        expect(result.status).toBe('error');
+    });
+
+    it('retries an action (POST) that was throttled with 429', async () => {
+        const { client, sent } = createClient({ apiKey: API_KEY }, [
+            { status: 429, headers: { 'retry-after': '0' } },
+            { status: 202, data: {} },
+        ]);
+
+        const result = await client.getToolCallData({
+            tool_name: 'fetch_data_from_endpoint',
+            parameters: { endpoint_path: '/api/v3/jobs/00000000-0000-0000-0000-000000000000/start', method: 'POST' },
+        } as any);
+
+        expect(sent).toHaveLength(2);
+        expect(result.status).toBe('success');
+    });
+
+    it('retries a GET after a 503 that says how long to wait', async () => {
+        const { client, sent } = createClient({ apiKey: API_KEY }, [
+            { status: 503, headers: { 'retry-after': '0' } },
+            { status: 200, data: SERVICE_INFO },
+        ]);
+
+        await expect(client.getServiceInfo()).resolves.toBeDefined();
+        expect(sent).toHaveLength(2);
+    });
+
     it('retries rate-limited fetch_data_from_endpoint calls too', async () => {
         const { client, sent } = createClient({ apiKey: API_KEY }, [
             { status: 429, headers: { 'retry-after': '0' } },
